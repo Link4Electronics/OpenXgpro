@@ -68,8 +68,8 @@ if buf[0x0a] not in {5, 6, 7} -> fail  // device type
 - **`ReadData2` (`0x4dc000` region)**: same on pipe `0x82`.
 - **`SendBlock` (`0x4dc080` region)** `(iface, buf, len)` — branches on the
   per-device type byte at `[index*0xec + 0x80109b]`:
-  - type **6** (T48): `WriteData(8-byte header)` then `(len-7)` bytes, pipe 0x01.
-  - type **7** (T56): 8-byte header on pipe 0x01, then `(len-8)` bytes on pipe 0x02.
+  - type **6** (T56): `WriteData(8-byte header)` then `(len-7)` bytes, pipe 0x01.
+  - type **7** (T48): 8-byte header on pipe 0x01, then `(len-8)` bytes on pipe 0x02.
   - type **5** (TL866II): header + body on pipes 0x01/0x02 with an event/timeout
     (`CreateEventA` at `0x66e354`).
 - **`BulkTransfer` (`0x4dc200` region)**: writes an 8-byte header on pipe 0x01,
@@ -188,6 +188,9 @@ Firmware image components referenced by the app: `BOOT1.BIN`, `BOOT2.BIN`,
   (start at the `0x4e0400`/`0x4e06d0` handlers for T56).
 - Compare against `InfoIC2Plus.dll` exports (it hosts the chip list) and the
   `NandDLL` source for the NAND paths.
+- The main-chip read/erase/program/verify sequences for the **T48** are now
+  documented in `06-chip-operations.md`; use that as the reference when
+  implementing the transport in the Qt6 app.
 
 ## Opcode semantics (current mapping)
 

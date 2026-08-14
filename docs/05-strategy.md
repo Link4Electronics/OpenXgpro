@@ -5,7 +5,8 @@
    `tools/dump_resources.py` — see `01-ui-inventory.md`.
 2. Reproduce dialogs as native Qt widgets.
 3. Reverse the USB transport / WINUSB protocol to drive real hardware — see
-   `02-usb-transport.md`.
+   `02-usb-transport.md` (transport) and `06-chip-operations.md` (the
+   read/erase/program/verify command sequences for a T48).
 4. Implement the `.alg` algorithm plugin loader so chip support can be reused
    from the original distribution — see `04-algorithm-format.md`.
 
