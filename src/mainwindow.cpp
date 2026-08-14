@@ -1,6 +1,10 @@
 #include "mainwindow.h"
 
+#include "blockfilldialog.h"
 #include "chipdialog.h"
+#include "device.h"
+#include "hexview.h"
+#include "programmerdialog.h"
 #include "theme.h"
 #include "version.h"
 
@@ -11,6 +15,8 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QFile>
+#include <QFileDialog>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -26,8 +32,98 @@
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QTextStream>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QDateTime>
+
+#include <algorithm>
+
+namespace {
+// Standard CRC-32 (IEEE 802.3), used for the Buffer/File checksum shown in the
+// "Checksum:" info line (mirrors the reference's CRC32 of the Buffer/File).
+quint32 crc32(const QByteArray &data)
+{
+    quint32 crc = 0xFFFFFFFF;
+    for (int i = 0; i < data.size(); ++i) {
+        crc ^= static_cast<quint8>(data.at(i));
+        for (int b = 0; b < 8; ++b)
+            crc = (crc >> 1) ^ (0xEDB88320u & -(crc & 1));
+    }
+    return ~crc;
+}
+
+int addressDigits(quint64 bytes)
+{
+    int digits = 6;
+    if (bytes > 1) {
+        quint64 v = bytes - 1;
+        int d = 0;
+        while (v) {
+            v >>= 4;
+            ++d;
+        }
+        digits = std::max(digits, d);
+    }
+    return digits;
+}
+
+// Minimal Intel HEX (Intel-8X, .hex) loader supporting record types 00, 01,
+// 02 (segment) and 04 (linear) with checksum validation.
+QByteArray parseIntelHex(const QByteArray &raw, bool *ok)
+{
+    QByteArray out;
+    quint32 base = 0;
+    *ok = true;
+
+    const QList<QByteArray> lines = raw.split('\n');
+    for (QByteArray line : lines) {
+        line = line.trimmed();
+        if (line.isEmpty())
+            continue;
+        if (!line.startsWith(':')) {
+            *ok = false;
+            break;
+        }
+        const QByteArray hex = line.mid(1);
+        if (hex.size() < 11 || (hex.size() % 2) != 0) {
+            *ok = false;
+            break;
+        }
+        bool conv = false;
+        const QByteArray bytes = QByteArray::fromHex(hex);
+        quint8 sum = 0;
+        for (int i = 0; i < bytes.size(); ++i)
+            sum += static_cast<quint8>(bytes.at(i));
+        if (sum != 0) {
+            *ok = false;
+            break;
+        }
+        Q_UNUSED(conv);
+
+        const int count = bytes.at(0);
+        const int type = bytes.at(3);
+        const quint16 addr = (static_cast<quint16>(bytes.at(1)) << 8)
+                             | static_cast<quint16>(bytes.at(2));
+        if (type == 0) { // data
+            const quint32 target = base + addr;
+            if (target + count > static_cast<quint32>(out.size()))
+                out.resize(target + count);
+            for (int i = 0; i < count; ++i)
+                out[target + i] = bytes.at(4 + i);
+        } else if (type == 1) { // EOF
+            break;
+        } else if (type == 2) { // extended segment address
+            base = (static_cast<quint32>(bytes.at(4)) << 8
+                    | static_cast<quint32>(bytes.at(5))) << 4;
+        } else if (type == 4) { // extended linear address
+            base = (static_cast<quint32>(bytes.at(4)) << 8
+                    | static_cast<quint32>(bytes.at(5))) << 16;
+        }
+    }
+    return out;
+}
+} // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -62,6 +158,23 @@ MainWindow::MainWindow(QWidget *parent)
 
     restoreSettings();
     loadLastChip();
+
+    QSettings settings;
+    m_model = Programmer::modelFromName(
+        settings.value(QStringLiteral("programmer/model"),
+                       Programmer::modelName(ProgrammerModel::T56))
+            .toString());
+
+    DeviceManager device;
+    if (device.detect()) {
+        m_deviceConnected = true;
+        m_model = device.connectedModel();
+    } else if (!qEnvironmentVariableIsSet("OPENXGPRO_SCREENSHOT")) {
+        m_model = ProgrammerDialog::getModel(m_model, this);
+    }
+    settings.setValue(QStringLiteral("programmer/model"),
+                      Programmer::modelName(m_model));
+    refreshDeviceStatus();
 }
 
 QWidget *MainWindow::buildDeviceGroup()
@@ -87,11 +200,17 @@ QWidget *MainWindow::buildDeviceGroup()
     m_interfaceCombo->addItem(QStringLiteral("ICSP serial"));
 
     auto *icspEnable = new QCheckBox(tr("ICSP_VCC Enable"), box);
-    auto *bits8 = new QRadioButton(tr("8 Bits"), box);
-    auto *bits16 = new QRadioButton(tr("16 Bits"), box);
-    bits8->setChecked(true);
-    bits8->setVisible(false);
-    bits16->setVisible(false);
+    m_bits8 = new QRadioButton(tr("8 Bits"), box);
+    m_bits16 = new QRadioButton(tr("16 Bits"), box);
+    m_bits8->setChecked(true);
+    connect(m_bits8, &QRadioButton::toggled, this, [this](bool checked) {
+        if (m_hexView)
+            m_hexView->setWordMode(!checked);
+    });
+    connect(m_bits16, &QRadioButton::toggled, this, [this](bool checked) {
+        if (m_hexView)
+            m_hexView->setWordMode(checked);
+    });
 
     auto *imaxLabel = new QLabel(tr("Vcc current Imax:"), box);
     m_imaxCombo = new QComboBox(box);
@@ -112,8 +231,8 @@ QWidget *MainWindow::buildDeviceGroup()
     lay->addWidget(interfaceLabel, 1, 0);
     lay->addWidget(m_interfaceCombo, 1, 1, 1, 3);
     lay->addWidget(icspEnable, 1, 4);
-    lay->addWidget(bits8, 2, 0);
-    lay->addWidget(bits16, 2, 1);
+    lay->addWidget(m_bits8, 2, 0);
+    lay->addWidget(m_bits16, 2, 1);
     lay->addWidget(imaxLabel, 2, 2);
     lay->addWidget(m_imaxCombo, 2, 3, 1, 2);
     lay->addWidget(saveLog, 3, 0);
@@ -167,15 +286,23 @@ QWidget *MainWindow::buildChipListArea()
     auto *tabs = new QTabWidget(box);
     tabs->addTab(m_deviceTable, tr("Device list"));
 
+    m_hexView = new HexView(box);
+    connect(m_hexView, &HexView::cursorChanged, this, &MainWindow::onHexCursorMoved);
+    connect(m_hexView, &HexView::statusMessage, this,
+            &MainWindow::onHexStatusMessage);
+    tabs->addTab(m_hexView, tr("Buffer"));
+
     auto *row = new QHBoxLayout;
     auto *pendingFile = new QLabel(tr(" File to write:"), box);
-    auto *pendingEdit = new QLineEdit(box);
+    m_pendingEdit = new QLineEdit(box);
     auto *chooseData = new QPushButton(tr("Load file..."), box);
+    connect(chooseData, &QPushButton::clicked, this, &MainWindow::loadDataFile);
     auto *saveFile = new QLabel(tr(" Save to file:"), box);
     auto *saveEdit = new QLineEdit(box);
     auto *chooseTarget = new QPushButton(tr("Save file as..."), box);
+    connect(chooseTarget, &QPushButton::clicked, this, &MainWindow::saveDataFile);
     row->addWidget(pendingFile);
-    row->addWidget(pendingEdit, 1);
+    row->addWidget(m_pendingEdit, 1);
     row->addWidget(chooseData);
     row->addWidget(saveFile);
     row->addWidget(saveEdit, 1);
@@ -284,8 +411,15 @@ void MainWindow::buildMenus()
     openAction->setShortcut(QKeySequence::Open);
     auto *saveAction = fileMenu->addAction(tr("&Save to file"));
     saveAction->setShortcut(QKeySequence::Save);
-    connect(openAction, &QAction::triggered, this, [this] { stubOperation(tr("Open file")); });
-    connect(saveAction, &QAction::triggered, this, [this] { stubOperation(tr("Save file")); });
+    connect(openAction, &QAction::triggered, this, &MainWindow::loadDataFile);
+    connect(saveAction, &QAction::triggered, this, &MainWindow::saveDataFile);
+    fileMenu->addSeparator();
+    auto *clearBufferAction = fileMenu->addAction(tr("Clear &Current Buffer"));
+    connect(clearBufferAction, &QAction::triggered, this,
+            [this] { updateBuffer(QByteArray()); });
+    auto *clearAllAction = fileMenu->addAction(tr("Clear &All Buffers"));
+    connect(clearAllAction, &QAction::triggered, this,
+            [this] { updateBuffer(QByteArray()); });
     fileMenu->addSeparator();
     auto *quitAction = fileMenu->addAction(tr("E&xit"));
     quitAction->setShortcut(QKeySequence::Quit);
@@ -297,7 +431,7 @@ void MainWindow::buildMenus()
     chipMenu->addSeparator();
     auto *flashIdentifyAction = chipMenu->addAction(tr("25 Flash Identify"));
     connect(flashIdentifyAction, &QAction::triggered, this,
-            [this] { stubOperation(tr("25 Flash Identify")); });
+            [this] { performOperation(OpType::FlashIdentify); });
 
     auto *opMenu = menuBar()->addMenu(tr("&Operations"));
     auto *readAction = opMenu->addAction(tr("&Read chip"));
@@ -307,14 +441,19 @@ void MainWindow::buildMenus()
     auto *programAction = opMenu->addAction(tr("&Program"));
     auto *eraseAction = opMenu->addAction(tr("&Erase"));
     auto *blankAction = opMenu->addAction(tr("&Blank check"));
-    connect(readAction, &QAction::triggered, this, [this] { stubOperation(tr("Read")); });
-    connect(idAction, &QAction::triggered, this, [this] { stubOperation(tr("Device ID")); });
-    connect(verifyAction, &QAction::triggered, this, [this] { stubOperation(tr("Verify")); });
-    connect(programAction, &QAction::triggered, this, [this] { stubOperation(tr("Program")); });
-    connect(eraseAction, &QAction::triggered, this, [this] { stubOperation(tr("Erase")); });
-    connect(blankAction, &QAction::triggered, this, [this] { stubOperation(tr("Blank check")); });
+    connect(readAction, &QAction::triggered, this, [this] { performOperation(OpType::Read); });
+    connect(idAction, &QAction::triggered, this, [this] { performOperation(OpType::ChipId); });
+    connect(verifyAction, &QAction::triggered, this, [this] { performOperation(OpType::Verify); });
+    connect(programAction, &QAction::triggered, this, [this] { performOperation(OpType::Program); });
+    connect(eraseAction, &QAction::triggered, this, [this] { performOperation(OpType::Erase); });
+    connect(blankAction, &QAction::triggered, this, [this] { performOperation(OpType::BlankCheck); });
 
     auto *toolsMenu = menuBar()->addMenu(tr("System &Tools"));
+    auto *selectProgAction = toolsMenu->addAction(tr("Select &Programmer..."));
+    selectProgAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+P")));
+    connect(selectProgAction, &QAction::triggered, this,
+            &MainWindow::selectProgrammer);
+    toolsMenu->addSeparator();
     auto *calculatorAction = toolsMenu->addAction(tr("&Calculator"));
     connect(calculatorAction, &QAction::triggered, this,
             [this] { stubOperation(tr("Calculator")); });
@@ -351,7 +490,7 @@ void MainWindow::buildMenus()
     });
 
     auto *helpMenu = menuBar()->addMenu(tr("&Help"));
-    auto *aboutAction = helpMenu->addAction(tr("&About MiniPro"));
+    auto *aboutAction = helpMenu->addAction(tr("&About"));
     connect(aboutAction, &QAction::triggered, this, &MainWindow::showAbout);
     helpMenu->addSeparator();
     auto *upgradeAction = helpMenu->addAction(tr("&Online Upgrade"));
@@ -380,6 +519,7 @@ void MainWindow::onChipComboEdited()
 void MainWindow::applySelectedChip(const ChipInfo &chip)
 {
     m_chipCombo->setCurrentText(chip.name);
+    m_currentChip = chip.name;
 
     m_deviceTable->setRowCount(1);
     m_deviceTable->setItem(0, 0, new QTableWidgetItem(chip.category));
@@ -405,31 +545,222 @@ void MainWindow::applySelectedChip(const ChipInfo &chip)
 void MainWindow::showDeviceContextMenu(const QPoint &pos)
 {
     auto *menu = new QMenu(this);
-    auto add = [this, menu](const QString &text, const QString &what) {
+    auto addStub = [this, menu](const QString &text, const QString &what) {
         auto *action = menu->addAction(text);
         connect(action, &QAction::triggered, this, [this, what] { stubOperation(what); });
         return action;
     };
-    auto *copy = add(tr("Copy"), tr("Copy"));
-    auto *paste = add(tr("Paste"), tr("Paste"));
-    auto *blockSave = add(tr("Block Save As... (txt file)"), tr("Block save as"));
-    auto *blockDefine = add(tr("Block Define"), tr("Block define"));
-    copy->setShortcut(QKeySequence::Copy);
-    paste->setShortcut(QKeySequence::Paste);
-    blockDefine->setShortcut(QKeySequence(QStringLiteral("Ctrl+B")));
-    menu->addSeparator();
-    add(tr("Block Fill"), tr("Block fill"));
-    add(tr("Clear Current Buffer"), tr("Clear current buffer"));
-    add(tr("Clear All Buffers"), tr("Clear all buffers"));
-    menu->addSeparator();
-    auto *find = add(tr("Find"), tr("Find"));
-    auto *findNext = add(tr("Find Next"), tr("Find next"));
-    auto *goTo = add(tr("Go to Address"), tr("Go to address"));
-    find->setShortcut(QKeySequence::Find);
-    findNext->setShortcut(QKeySequence(Qt::Key_F3));
-    goTo->setShortcut(QKeySequence(QStringLiteral("Ctrl+G")));
+
+    if (m_hexView) {
+        auto *copy = menu->addAction(tr("Copy Hex"));
+        copy->setShortcut(QKeySequence::Copy);
+        connect(copy, &QAction::triggered, m_hexView, &HexView::copySelectionAsHex);
+        auto *paste = addStub(tr("Paste"), tr("Paste"));
+        paste->setShortcut(QKeySequence::Paste);
+        menu->addSeparator();
+        auto *blockFill = menu->addAction(tr("Block Fill..."));
+        connect(blockFill, &QAction::triggered, this, &MainWindow::blockFill);
+        auto *blockSave = menu->addAction(tr("Block Save As... (txt file)"));
+        connect(blockSave, &QAction::triggered, this, &MainWindow::saveBlockAs);
+        auto *blockClear = menu->addAction(tr("Clear Current Buffer"));
+        connect(blockClear, &QAction::triggered, this,
+                [this] { updateBuffer(QByteArray()); });
+        menu->addSeparator();
+        auto *find = menu->addAction(tr("Find..."));
+        find->setShortcut(QKeySequence::Find);
+        connect(find, &QAction::triggered, m_hexView, &HexView::showFindDialog);
+        auto *findNext = menu->addAction(tr("Find Next"));
+        findNext->setShortcut(QKeySequence(Qt::Key_F3));
+        connect(findNext, &QAction::triggered, m_hexView, &HexView::findNextFromCursor);
+        auto *goTo = menu->addAction(tr("Go to Address..."));
+        goTo->setShortcut(QKeySequence(QStringLiteral("Ctrl+G")));
+        connect(goTo, &QAction::triggered, m_hexView, &HexView::showGotoDialog);
+    } else {
+        addStub(tr("Copy"), tr("Copy"));
+        addStub(tr("Paste"), tr("Paste"));
+    }
     menu->exec(m_deviceTable->viewport()->mapToGlobal(pos));
     delete menu;
+}
+
+void MainWindow::blockFill()
+{
+    const BlockFillDialog::Params params =
+        BlockFillDialog::getFill(m_buffer, this);
+    if (!params.valid)
+        return;
+    QByteArray data = m_buffer;
+    BlockFillDialog::apply(data, params);
+    updateBuffer(data);
+    statusBar()->showMessage(
+        tr("Buffer filled from 0x%1 to 0x%2")
+            .arg(params.start, 0, 16)
+            .arg(params.end, 0, 16)
+            .toUpper(),
+        4000);
+}
+
+void MainWindow::saveBlockAs()
+{
+    if (m_buffer.isEmpty()) {
+        QMessageBox::information(this, tr("Block Save As"),
+                                 tr("Buffer is empty — nothing to save."));
+        return;
+    }
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Block Save As"), QStringLiteral("block.txt"),
+        tr("Text file (*.txt);;Binary file (*.bin);;All files (*)"));
+    if (path.isEmpty())
+        return;
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        QMessageBox::warning(this, tr("Block Save As"),
+                             tr("Could not write %1:\n%2").arg(path, file.errorString()));
+        return;
+    }
+
+    if (path.toLower().endsWith(QStringLiteral(".bin"))) {
+        file.write(m_buffer);
+    } else {
+        // Text form: 16 bytes per line, ASCII dump on the right.
+        QTextStream out(&file);
+        out.setFieldAlignment(QTextStream::AlignRight);
+        for (qsizetype i = 0; i < m_buffer.size(); i += 16) {
+            QString hex;
+            QString ascii;
+            for (qsizetype b = 0; b < 16 && i + b < m_buffer.size(); ++b) {
+                const char c = m_buffer.at(i + b);
+                if (b)
+                    hex += QLatin1Char(' ');
+                hex += QStringLiteral("%1").arg(static_cast<quint8>(c), 2, 16,
+                                                QLatin1Char('0')).toUpper();
+                ascii += (c >= 0x20 && c <= 0x7e) ? QLatin1Char(c)
+                                                  : QLatin1Char('.');
+            }
+            out << QStringLiteral("%1  %2  |%3|\n")
+                       .arg(i, 8, 16, QLatin1Char('0'))
+                       .arg(hex, -48)
+                       .arg(ascii, -16)
+                       .toUpper();
+        }
+    }
+    file.close();
+    statusBar()->showMessage(
+        tr("Saved block (%1 bytes) to %2").arg(m_buffer.size()).arg(path), 5000);
+}
+
+void MainWindow::performOperation(OpType op)
+{
+    const OpResult result = runOperation(op, m_model, m_currentChip, m_buffer);
+    if (result.ok) {
+        statusBar()->showMessage(result.message, 5000);
+        return;
+    }
+    QMessageBox::warning(this, opName(op), result.message);
+}
+
+void MainWindow::refreshDeviceStatus()
+{
+    if (m_deviceConnected)
+        statusBar()->showMessage(
+            tr("%1 connected").arg(Programmer::modelName(m_model)));
+    else
+        statusBar()->showMessage(
+            tr("%1 — no programmer connected").arg(Programmer::modelName(m_model)));
+}
+
+void MainWindow::loadDataFile()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Open file"), QString(),
+        tr("Binary and HEX files (*.bin *.hex *.rom *.dat);;Intel HEX (*.hex);;"
+           "All files (*)"));
+    if (path.isEmpty())
+        return;
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, tr("Open file"),
+                             tr("Could not open %1:\n%2").arg(path, file.errorString()));
+        return;
+    }
+    const QByteArray raw = file.readAll();
+    file.close();
+
+    const QString lower = path.toLower();
+    QByteArray data;
+    bool ok = true;
+    if (lower.endsWith(QStringLiteral(".hex"))) {
+        data = parseIntelHex(raw, &ok);
+        if (!ok) {
+            QMessageBox::warning(this, tr("Open file"),
+                                 tr("Invalid Intel HEX data in %1.").arg(path));
+            return;
+        }
+    } else {
+        data = raw;
+    }
+
+    m_pendingEdit->setText(path);
+    updateBuffer(data);
+    statusBar()->showMessage(
+        tr("Loaded %1 — %2 bytes").arg(path).arg(data.size()), 5000);
+}
+
+void MainWindow::saveDataFile()
+{
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Save file"), QString(),
+        tr("Binary file (*.bin);;All files (*)"));
+    if (path.isEmpty())
+        return;
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        QMessageBox::warning(this, tr("Save file"),
+                             tr("Could not write %1:\n%2").arg(path, file.errorString()));
+        return;
+    }
+    file.write(m_buffer);
+    file.close();
+    statusBar()->showMessage(
+        tr("Saved %1 — %2 bytes").arg(path).arg(m_buffer.size()), 5000);
+}
+
+void MainWindow::updateBuffer(const QByteArray &data)
+{
+    m_buffer = data;
+    if (m_hexView)
+        m_hexView->setData(data);
+    updateChecksumLabel();
+}
+
+void MainWindow::onHexCursorMoved(quint64 index)
+{
+    if (m_buffer.isEmpty() || index >= static_cast<quint64>(m_buffer.size()))
+        return;
+    statusBar()->showMessage(
+        tr("Addr: 0x%1  Value: 0x%2")
+            .arg(index, addressDigits(index + 1), 16, QLatin1Char('0'))
+            .arg(static_cast<quint8>(m_buffer.at(index)), 2, 16, QLatin1Char('0'))
+            .toUpper(),
+        3000);
+}
+
+void MainWindow::onHexStatusMessage(const QString &message)
+{
+    statusBar()->showMessage(message, 5000);
+}
+
+void MainWindow::updateChecksumLabel()
+{
+    const quint32 crc = crc32(m_buffer);
+    m_checksumLabel->setText(
+        QStringLiteral(" %1").arg(crc, 8, 16, QLatin1Char('0')).toUpper());
+    m_timeLabel->setText(
+        tr(" %1").arg(QDateTime::currentDateTime().toString(
+                          QStringLiteral("yyyy-MM-dd hh:mm:ss")),
+                      -1));
 }
 
 void MainWindow::stubOperation(const QString &what)
@@ -439,11 +770,23 @@ void MainWindow::stubOperation(const QString &what)
 
 void MainWindow::showAbout()
 {
-    QMessageBox::about(this, tr("About MiniPro"),
+    QMessageBox::about(this, tr("About"),
                        tr("<b>%1 %2</b><br/>"
-                          "Native Linux port of Xgpro for TL866II / T48 / T56 "
-                          "programmers.<br/>Open-source reimplementation.")
+                          "Open-source programmer for TL866II / T48 / T56.")
                            .arg(QLatin1String(APP_NAME), QLatin1String(APP_VERSION)));
+}
+
+void MainWindow::selectProgrammer()
+{
+    const ProgrammerModel model = ProgrammerDialog::getModel(m_model, this);
+    if (model == m_model)
+        return;
+    m_model = model;
+    QSettings settings;
+    settings.setValue(QStringLiteral("programmer/model"),
+                      Programmer::modelName(m_model));
+    statusBar()->showMessage(
+        tr("Programmer: %1").arg(Programmer::modelName(m_model)), 4000);
 }
 
 void MainWindow::setTheme(int mode)
