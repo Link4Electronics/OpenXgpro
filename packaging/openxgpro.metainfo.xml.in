@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+AppStream metainfo. Configured by CMake into
+${CMAKE_BINARY_DIR}/packaging/<bundle-id>.metainfo.xml and copied into the
+AppImage at usr/share/metainfo/, which is where AppImageHub, Gear Lever and
+software centres look for it. Do not edit the generated copy; edit this
+template, or override the OXGPRO_* cache variables in the root CMakeLists.txt.
+
+Keep <categories> in sync with the Categories= line in openxgpro.desktop.in.
+-->
+<component type="desktop-application">
+  <id>@OXGPRO_BUNDLE_IDENTIFIER@</id>
+  <launchable type="desktop-id">@OXGPRO_DESKTOP_ID@.desktop</launchable>
+  <provides>
+    <binary>@OXGPRO_EXECUTABLE_NAME@</binary>
+  </provides>
+
+  <name>@OXGPRO_PRODUCT_NAME@</name>
+  <summary>@OXGPRO_PRODUCT_DESCRIPTION@</summary>
+  <developer id="org.openxgpro">
+    <name>OpenXgpro contributors</name>
+  </developer>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <description>
+    <p>Open-source port of Xgpro, the software for TL866II Plus / T48 / T56 USB
+programmers. This is a clean Qt6 rewrite of the reference Windows application.</p>
+  </description>
+
+  <categories>
+    <category>Utility</category>
+    <category>HardwareSettings</category>
+    <category>Development</category>
+  </categories>
+
+  <!-- Add <url> entries (homepage/bugtracker/vcs-browser) pointing at this
+       repository's GitHub page when it has a home. -->
+</component>
