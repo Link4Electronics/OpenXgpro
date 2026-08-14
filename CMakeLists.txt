@@ -27,6 +27,8 @@ qt_add_executable(OpenXgpro
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow.h
+    src/algfile.cpp
+    src/algfile.h
     src/blockfilldialog.cpp
     src/blockfilldialog.h
     src/chipdialog.cpp
@@ -37,6 +39,8 @@ qt_add_executable(OpenXgpro
     src/device.h
     src/hexview.cpp
     src/hexview.h
+    src/logiclist.cpp
+    src/logiclist.h
     src/operations.cpp
     src/operations.h
     src/programmer.cpp
@@ -59,6 +63,8 @@ qt_add_executable(hexview-smoke
     tests/hexview_smoke.cpp
     src/mainwindow.cpp
     src/mainwindow.h
+    src/algfile.cpp
+    src/algfile.h
     src/blockfilldialog.cpp
     src/blockfilldialog.h
     src/chipdialog.cpp
@@ -69,6 +75,8 @@ qt_add_executable(hexview-smoke
     src/device.h
     src/hexview.cpp
     src/hexview.h
+    src/logiclist.cpp
+    src/logiclist.h
     src/operations.cpp
     src/operations.h
     src/programmer.cpp

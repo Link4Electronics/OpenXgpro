@@ -1,5 +1,8 @@
 #include "chips.h"
 
+#include "algfile.h"
+#include "logiclist.h"
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -89,6 +92,99 @@ QStringList ChipDatabase::vendorsFor(const QString &category, const QString &sea
             out.append(chip.vendor);
     out.sort(Qt::CaseInsensitive);
     return out;
+}
+
+QString ChipDatabase::categoryFor(const QString &family)
+{
+    using namespace ChipCategory;
+    const QString upper = family.toUpper();
+
+    const QStringList mcuMarkers = {QStringLiteral("ATMEGA"),
+                                    QStringLiteral("ATTINY"),
+                                    QStringLiteral("ATT2313"),
+                                    QStringLiteral("ATTINY"),
+                                    QStringLiteral("AT89"),
+                                    QStringLiteral("AT90"),
+                                    QStringLiteral("AT91"),
+                                    QStringLiteral("PIC"),
+                                    QStringLiteral("AVR"),
+                                    QStringLiteral("STC"),
+                                    QStringLiteral("8051"),
+                                    QStringLiteral("HT48"),
+                                    QStringLiteral("HT66"),
+                                    QStringLiteral("HT46"),
+                                    QStringLiteral("MSP"),
+                                    QStringLiteral("STM8"),
+                                    QStringLiteral("STM32"),
+                                    QStringLiteral("MEGA")};
+    for (const QString &m : mcuMarkers)
+        if (upper.contains(m))
+            return kMcu;
+
+    const QStringList pldMarkers = {QStringLiteral("GAL"),   QStringLiteral("CPLD"),
+                                    QStringLiteral("EPM"),   QStringLiteral("PLD"),
+                                    QStringLiteral("ISPLSI"), QStringLiteral("MAX7000"),
+                                    QStringLiteral("MACH")};
+    for (const QString &m : pldMarkers)
+        if (upper.contains(m))
+            return kPld;
+
+    if (upper.contains(QStringLiteral("EMMC"))
+        || upper.contains(QStringLiteral("EMCP"))
+        || upper.startsWith(QStringLiteral("THGB"))
+        || upper.startsWith(QStringLiteral("KLM"))
+        || upper.startsWith(QStringLiteral("SDIN")))
+        return kEmmc;
+
+    if (upper.contains(QStringLiteral("NAND"))
+        || upper.startsWith(QStringLiteral("K9F"))
+        || upper.startsWith(QStringLiteral("TC58"))
+        || upper.startsWith(QStringLiteral("MT29"))
+        || upper.startsWith(QStringLiteral("HY27")))
+        return kNand;
+
+    const QStringList vgaMarkers = {QStringLiteral("VGA"),  QStringLiteral("HDMI"),
+                                    QStringLiteral("RTD"),  QStringLiteral("MST"),
+                                    QStringLiteral("NT685"), QStringLiteral("TSUM"),
+                                    QStringLiteral("CH703"), QStringLiteral("EP953")};
+    for (const QString &m : vgaMarkers)
+        if (upper.contains(m))
+            return kVga;
+
+    if (upper.contains(QStringLiteral("SRAM"))
+        || upper.contains(QStringLiteral("NVRAM"))
+        || upper.contains(QStringLiteral("DS12")))
+        return kSram;
+
+    return kFlash;
+}
+
+int ChipDatabase::loadReferenceData(const QString &referenceDir)
+{
+    const QDir dir(referenceDir);
+    if (!dir.exists())
+        return 0;
+
+    int added = 0;
+    const QVector<AlgInfo> algs = scanAlgorithms(
+        dir.filePath(QStringLiteral("algorithm")));
+    for (const AlgInfo &alg : algs) {
+        QString name = alg.file;
+        name.chop(QStringLiteral(".alg").size());
+        const QString cat = categoryFor(alg.familyName);
+        if (!name.isEmpty()) {
+            add(alg.familyName, name, cat);
+            ++added;
+        }
+    }
+
+    const QStringList logic = scanLogicList(
+        dir.filePath(QStringLiteral("Logic.lst")));
+    for (const QString &part : logic) {
+        add(QStringLiteral("Logic"), part, ChipCategory::kLogic);
+        ++added;
+    }
+    return added;
 }
 
 void ChipDatabase::addBuiltinSamples()

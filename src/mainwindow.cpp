@@ -15,6 +15,7 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QGroupBox>
@@ -123,6 +124,32 @@ QByteArray parseIntelHex(const QByteArray &raw, bool *ok)
     }
     return out;
 }
+
+// Locates the reference Xgpro distribution holding "algorithm/*.alg" and
+// "Logic.lst". Candidates: $OPENXGPRO_REFERENCE, then common relative paths
+// and the home directory.
+QString findReferenceDir()
+{
+    if (qEnvironmentVariableIsSet("OPENXGPRO_REFERENCE")) {
+        const QString env = qEnvironmentVariable("OPENXGPRO_REFERENCE");
+        if (QDir(env).exists())
+            return env;
+    }
+    const QStringList candidates = {
+        QStringLiteral("XgproV1316"),
+        QStringLiteral("../XgproV1316"),
+        QStringLiteral("../../XgproV1316"),
+    };
+    for (const QString &c : candidates) {
+        const QDir dir(QDir::current().filePath(c));
+        if (dir.exists())
+            return dir.absolutePath();
+    }
+    const QDir home(QDir::home().filePath(QStringLiteral("XgproV1316")));
+    if (home.exists())
+        return home.absolutePath();
+    return QString();
+}
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent)
@@ -130,6 +157,10 @@ MainWindow::MainWindow(QWidget *parent)
 {
     setWindowTitle(QStringLiteral("%1 %2").arg(QLatin1String(APP_NAME),
                                                QLatin1String(APP_VERSION)));
+
+    const QString referenceDir = findReferenceDir();
+    if (!referenceDir.isEmpty())
+        m_chips.loadReferenceData(referenceDir);
 
     auto *central = new QWidget(this);
     auto *rootLayout = new QVBoxLayout(central);

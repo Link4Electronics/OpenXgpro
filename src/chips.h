@@ -49,10 +49,17 @@ public:
     QStringList vendorsFor(const QString &category, const QString &search,
                            bool exact) const;
 
+    // Loads real device families from the reference distribution: algorithm
+    // headers from "<referenceDir>/algorithm/*.alg" and logic parts from
+    // "<referenceDir>/Logic.lst". Existing entries are kept. Returns the
+    // number of chips added (0 when the directory is missing).
+    int loadReferenceData(const QString &referenceDir);
+
 private:
     void addBuiltinSamples();
     void add(const QString &vendor, const QString &name, const QString &category,
              const QString &note = QString());
+    static QString categoryFor(const QString &family);
 
     QVector<ChipInfo> m_chips;
 };
