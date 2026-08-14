@@ -16,6 +16,7 @@ is written from scratch as a Qt6 application.
   (`00-reference-binary.md`): UI inventory, protocol findings, data formats,
   reference-data loading, and the project strategy (`05-strategy.md`)
 - `src/` — the Qt6 application
+- `udev/` — Linux udev rules so the programmer is usable without root
 - `external/reference/` — extracted reference artifacts (dialogs, bitmaps,
   strings) used to guide the reimplementation
 
@@ -60,13 +61,32 @@ cmake -S . -B build -G "MinGW Makefiles"
 cmake --build build
 ```
 
+## USB access
+
+### Linux
+
+The programmer (VID `0xA466` PID `0x0A53`) has no kernel driver, so raw USB
+access is root-only by default. Install the included udev rule to allow
+unprivileged users (no `sudo` needed to read/erase/program):
+
+```sh
+sudo cp udev/99-openxgpro.rules /etc/udev/rules.d/
+sudo udevadm control --reload
+sudo udevadm trigger
+```
+
+then unplug/replug the programmer. Your user must be in the `plugdev` group
+(`sudo usermod -aG plugdev $USER`, then log out/in).
+
+### Windows
+
 To talk to real hardware the programmer's USB driver must be WinUSB/libusbK
 (e.g. via [Zadig](https://zadig.akeo.ie/)) — that is a runtime requirement,
 not a build one.
 
-### Reference data
+## Reference data
 
-See [docs/00-reference-binary.md](docs/00-reference-binary.md) for how the app
+See [docs](docs/) for how the app
 finds the reference Xgpro distribution and loads the device database at
 runtime.
 
