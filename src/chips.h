@@ -5,17 +5,17 @@
 #include <QVector>
 
 // Category keys mirror the radio-button groups of the reference "Select
-// Device" dialog (dialog 183). "All" is not a stored category but the "所有类型"
-// pseudo-group.
+// Device" dialog (dialog 183). "All" is not a stored category but the
+// "All types" pseudo-group.
 namespace ChipCategory {
-constexpr auto kFlash = QStringLiteral("Flash");
-constexpr auto kMcu = QStringLiteral("MCU");
-constexpr auto kPld = QStringLiteral("PLD");
-constexpr auto kSram = QStringLiteral("SRAM");
-constexpr auto kNand = QStringLiteral("NAND");
-constexpr auto kEmmc = QStringLiteral("EMMC");
-constexpr auto kVga = QStringLiteral("VGA");
-constexpr auto kLogic = QStringLiteral("Logic");
+inline const QString kFlash = QStringLiteral("Flash");
+inline const QString kMcu = QStringLiteral("MCU");
+inline const QString kPld = QStringLiteral("PLD");
+inline const QString kSram = QStringLiteral("SRAM");
+inline const QString kNand = QStringLiteral("NAND");
+inline const QString kEmmc = QStringLiteral("EMMC");
+inline const QString kVga = QStringLiteral("VGA");
+inline const QString kLogic = QStringLiteral("Logic");
 } // namespace ChipCategory
 
 struct ChipInfo {

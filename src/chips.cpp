@@ -36,7 +36,6 @@ ChipDatabase::ChipDatabase()
     }
 
     QTextStream in(&file);
-    in.setCodec("UTF-8");
     while (!in.atEnd()) {
         const QString line = in.readLine().trimmed();
         if (line.isEmpty() || line.startsWith(QLatin1Char('#')))

@@ -1,12 +1,13 @@
 #pragma once
 
+#include "chips.h"
+
 #include <QMainWindow>
 
 class QAction;
 class QActionGroup;
 class QCheckBox;
 class QComboBox;
-class QGroupBox;
 class QLabel;
 class QLineEdit;
 class QSpinBox;
@@ -25,6 +26,9 @@ protected:
 
 private slots:
     void showChipDialog();
+    void onChipComboEdited();
+    void applySelectedChip(const ChipInfo &chip);
+    void showDeviceContextMenu(const QPoint &pos);
     void stubOperation(const QString &what);
     void showAbout();
     void setTheme(int mode);
@@ -38,7 +42,9 @@ private:
     void buildMenus();
     void restoreSettings();
     void saveSettings();
+    void loadLastChip();
 
+    ChipDatabase m_chips;
     QActionGroup *m_themeGroup = nullptr;
     QComboBox *m_chipCombo = nullptr;
     QComboBox *m_interfaceCombo = nullptr;

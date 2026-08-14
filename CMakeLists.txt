@@ -24,6 +24,10 @@ qt_add_executable(OpenXgpro
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow.h
+    src/chipdialog.cpp
+    src/chipdialog.h
+    src/chips.cpp
+    src/chips.h
     src/theme.cpp
     src/theme.h
 )

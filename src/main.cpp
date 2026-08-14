@@ -4,6 +4,7 @@
 
 #include <QApplication>
 #include <QStyleHints>
+#include <QTimer>
 
 int main(int argc, char *argv[])
 {
@@ -23,5 +24,14 @@ int main(int argc, char *argv[])
 
     MainWindow window;
     window.show();
+
+    const QString screenshotPath = qEnvironmentVariable("OPENXGPRO_SCREENSHOT");
+    if (!screenshotPath.isEmpty()) {
+        QTimer::singleShot(300, [&window, screenshotPath] {
+            window.grab().save(screenshotPath);
+            QCoreApplication::quit();
+        });
+    }
+
     return app.exec();
 }
