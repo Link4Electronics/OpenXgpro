@@ -32,12 +32,59 @@ here is written from scratch as a Qt6 application.
 
 ## Building
 
-Requires Qt 6 (Widgets), CMake >= 3.16 and a C++23 compiler.
+Requires Qt 6 (Widgets), CMake >= 3.16, Ninja, a C++23 compiler and
+`libusb-1.0` (pkg-config must find it). Then, on every platform:
 
 ```sh
 cmake -S . -B build -G Ninja
 cmake --build build
+./build/OpenXgpro
 ```
+
+### Linux
+
+```sh
+# Debian / Ubuntu
+sudo apt install cmake ninja-build g++ pkg-config qt6-base-dev libusb-1.0-0-dev
+# Fedora
+sudo dnf install cmake ninja-build gcc-c++ pkgconf qt6-qtbase-devel libusbx-devel
+# Arch
+sudo pacman -S cmake ninja gcc pkgconf qt6-base libusb
+```
+
+### Windows (MSYS2)
+
+Build in a **MINGW64** (or UCRT64) MSYS2 shell:
+
+```sh
+pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja \
+          mingw-w64-x86_64-pkgconf mingw-w64-x86_64-qt6-base \
+          mingw-w64-x86_64-libusb
+cmake -S . -B build -G Ninja
+cmake --build build
+```
+
+To talk to real hardware the programmer's USB driver must be WinUSB/libusbK
+(e.g. via [Zadig](https://zadig.akeo.ie/)) — that is a runtime requirement,
+not a build one.
+
+### macOS
+
+```sh
+brew install cmake ninja qt libusb pkg-config
+# Qt is keg-only; point CMake at it:
+cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+cmake --build build
+```
+
+### Reference data
+
+The app loads the real device database (chip families, `Logic.lst` parts) from
+the reference Xgpro distribution when it can find it. It looks for
+`XgproV1316` in the current directory, the parent directories, or your home
+directory, and you can point it somewhere explicit with the
+`OPENXGPRO_REFERENCE` environment variable. Without it, a small built-in
+sample chip list is used.
 
 ## Strategy
 

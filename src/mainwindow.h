@@ -63,6 +63,7 @@ private:
     ChipDatabase m_chips;
     QByteArray m_buffer;
     QString m_currentChip;
+    QString m_currentAlgorithmFile;
     bool m_deviceConnected = false;
     QActionGroup *m_themeGroup = nullptr;
     QComboBox *m_chipCombo = nullptr;

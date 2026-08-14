@@ -152,7 +152,9 @@ void ChipDialog::rebuildChips()
     for (const ChipInfo &chip : chips) {
         if (!vendor.isEmpty() && chip.vendor != vendor)
             continue;
-        m_chipList->addItem(chip.name);
+        auto *item = new QListWidgetItem(chip.name, m_chipList);
+        if (!chip.note.isEmpty())
+            item->setToolTip(tr("Algorithm: %1").arg(chip.note));
     }
     m_chipList->blockSignals(false);
 

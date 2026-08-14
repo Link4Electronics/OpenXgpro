@@ -2,6 +2,7 @@
 
 #include "device.h"
 
+#include <QFileInfo>
 #include <QObject>
 
 QString opName(OpType op)
@@ -26,7 +27,7 @@ QString opName(OpType op)
 }
 
 OpResult runOperation(OpType op, ProgrammerModel model, const QString &chipName,
-                      const QByteArray &buffer)
+                      const QByteArray &buffer, const QString &algorithmFile)
 {
     const QString opText = opName(op);
 
@@ -38,6 +39,19 @@ OpResult runOperation(OpType op, ProgrammerModel model, const QString &chipName,
     if ((op == OpType::Program || op == OpType::Verify) && buffer.isEmpty()) {
         return {false, false,
                 QObject::tr("Buffer is empty. Load a file before %1.").arg(opText),
+                {}};
+    }
+    if (algorithmFile.isEmpty()) {
+        return {false, false,
+                QObject::tr("No algorithm file is associated with %1. "
+                            "Load the reference data or pick a reference chip.")
+                    .arg(chipName),
+                {}};
+    }
+    if (!QFileInfo::exists(algorithmFile)) {
+        return {false, false,
+                QObject::tr("Algorithm file for %1 is missing: %2")
+                    .arg(chipName, algorithmFile),
                 {}};
     }
 
@@ -58,7 +72,7 @@ OpResult runOperation(OpType op, ProgrammerModel model, const QString &chipName,
     // implemented, so report the op as pending rather than pretending.
     return {false, false,
             QObject::tr("%1 on %2 requires the programmer protocol, which is "
-                        "not implemented yet.")
-                .arg(opText, chipName),
+                        "not implemented yet (algorithm %3).")
+                .arg(opText, chipName, QFileInfo(algorithmFile).fileName()),
             {}};
 }

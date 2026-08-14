@@ -6,6 +6,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QTextStream>
 
 QStringList ChipDatabase::categories()
@@ -164,16 +165,17 @@ int ChipDatabase::loadReferenceData(const QString &referenceDir)
     const QDir dir(referenceDir);
     if (!dir.exists())
         return 0;
+    m_algorithmDir =
+        QDir(dir.filePath(QStringLiteral("algorithm"))).absolutePath();
 
     int added = 0;
-    const QVector<AlgInfo> algs = scanAlgorithms(
-        dir.filePath(QStringLiteral("algorithm")));
+    const QVector<AlgInfo> algs = scanAlgorithms(m_algorithmDir);
     for (const AlgInfo &alg : algs) {
         QString name = alg.file;
         name.chop(QStringLiteral(".alg").size());
         const QString cat = categoryFor(alg.familyName);
         if (!name.isEmpty()) {
-            add(alg.familyName, name, cat);
+            add(alg.familyName, name, cat, alg.file);
             ++added;
         }
     }
@@ -185,6 +187,14 @@ int ChipDatabase::loadReferenceData(const QString &referenceDir)
         ++added;
     }
     return added;
+}
+
+QString ChipDatabase::algorithmFile(const ChipInfo &chip) const
+{
+    if (m_algorithmDir.isEmpty() || !chip.note.endsWith(QStringLiteral(".alg")))
+        return QString();
+    const QFileInfo fi(QDir(m_algorithmDir).filePath(chip.note));
+    return fi.exists() ? fi.absoluteFilePath() : QString();
 }
 
 void ChipDatabase::addBuiltinSamples()

@@ -18,6 +18,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -302,8 +303,9 @@ QWidget *MainWindow::buildChipListArea()
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(4);
 
-    m_deviceTable = new QTableWidget(0, 2, box);
-    m_deviceTable->setHorizontalHeaderLabels({tr("Type"), tr("Device")});
+    m_deviceTable = new QTableWidget(0, 3, box);
+    m_deviceTable->setHorizontalHeaderLabels(
+        {tr("Type"), tr("Device"), tr("Algorithm")});
     m_deviceTable->verticalHeader()->setVisible(false);
     m_deviceTable->horizontalHeader()->setStretchLastSection(true);
     m_deviceTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -551,10 +553,16 @@ void MainWindow::applySelectedChip(const ChipInfo &chip)
 {
     m_chipCombo->setCurrentText(chip.name);
     m_currentChip = chip.name;
+    m_currentAlgorithmFile = m_chips.algorithmFile(chip);
 
     m_deviceTable->setRowCount(1);
     m_deviceTable->setItem(0, 0, new QTableWidgetItem(chip.category));
     m_deviceTable->setItem(0, 1, new QTableWidgetItem(chip.name));
+    m_deviceTable->setItem(
+        0, 2, new QTableWidgetItem(
+                  m_currentAlgorithmFile.isEmpty()
+                      ? QStringLiteral("—")
+                      : QFileInfo(m_currentAlgorithmFile).fileName()));
 
     m_chipTypeLabel->setText(chip.name);
 
@@ -683,7 +691,8 @@ void MainWindow::saveBlockAs()
 
 void MainWindow::performOperation(OpType op)
 {
-    const OpResult result = runOperation(op, m_model, m_currentChip, m_buffer);
+    const OpResult result =
+        runOperation(op, m_model, m_currentChip, m_buffer, m_currentAlgorithmFile);
     if (result.ok) {
         statusBar()->showMessage(result.message, 5000);
         return;

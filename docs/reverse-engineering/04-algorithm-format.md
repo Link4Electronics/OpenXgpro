@@ -84,6 +84,15 @@ Example from `AT45D31.alg`:
 - Data tables (status bytes, chip-id lists, timing nibbles) are embedded in the
   code stream and reached via `MOVC A,@A+PC` / `MOVC A,@A+DPTR`.
 
+### Runtime wiring in this project
+
+`ChipDatabase::loadReferenceData()` stores each algorithm's file name in
+`ChipInfo::note`, and `ChipDatabase::algorithmFile()` resolves it back to a
+full path. The chip dialog shows the `.alg` file as a tooltip, the device list
+has an "Algorithm" column, and `runOperation()` takes the resolved path so the
+operations layer is algorithm-aware (it validates that the file exists before
+reaching the hardware layer).
+
 ## 4. Reverse-engineering state
 
 | Area                           | Status                     |

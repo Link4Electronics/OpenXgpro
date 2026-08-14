@@ -55,6 +55,14 @@ public:
     // number of chips added (0 when the directory is missing).
     int loadReferenceData(const QString &referenceDir);
 
+    // Directory holding the reference "algorithm/*.alg" files, or empty when
+    // no reference data was loaded.
+    QString algorithmDir() const { return m_algorithmDir; }
+
+    // The .alg file backing `chip` (full path), or empty when the chip has no
+    // algorithm (built-in sample) or the file is missing.
+    QString algorithmFile(const ChipInfo &chip) const;
+
 private:
     void addBuiltinSamples();
     void add(const QString &vendor, const QString &name, const QString &category,
@@ -62,4 +70,5 @@ private:
     static QString categoryFor(const QString &family);
 
     QVector<ChipInfo> m_chips;
+    QString m_algorithmDir;
 };
