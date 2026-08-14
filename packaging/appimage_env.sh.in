@@ -1,0 +1,8 @@
+# Generated at configure time by CMake. Sourced by packaging/make-appimage.sh
+# so the AppImage script consumes the same product metadata as the binary and
+# .desktop entry. Do not edit; override the OXGPRO_* CMake cache variables in
+# the root CMakeLists.txt instead.
+export OXGPRO_PRODUCT_NAME="@OXGPRO_PRODUCT_NAME@"
+export OXGPRO_EXECUTABLE_NAME="@OXGPRO_EXECUTABLE_NAME@"
+export OXGPRO_DESKTOP_ID="@OXGPRO_DESKTOP_ID@"
+export OXGPRO_BUNDLE_IDENTIFIER="@OXGPRO_BUNDLE_IDENTIFIER@"

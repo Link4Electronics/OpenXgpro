@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=@OXGPRO_PRODUCT_NAME@
+Comment=@OXGPRO_PRODUCT_DESCRIPTION@
+Exec=@OXGPRO_EXECUTABLE_NAME@
+Icon=@OXGPRO_DESKTOP_ID@
+StartupWMClass=@OXGPRO_EXECUTABLE_NAME@
+# Registered freedesktop categories only. Keep in sync with openxgpro.metainfo.xml.in.
+Categories=Utility;HardwareSettings;Development;
+Keywords=programmer;EEPROM;flash;IC;chip;TL866;T48;T56;

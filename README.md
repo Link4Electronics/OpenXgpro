@@ -1,4 +1,7 @@
 # OpenXgpro
+<p align="center">
+<img src="https://raw.githubusercontent.com/Link4Electronics/OpenXgpro/refs/heads/main/packaging/openxgpro.png" width="128" />
+</p>
 
 Open-source port of **Xgpro** (the software for TL866II Plus / T48 / T56 USB
 programmers, Minipro "Xgecu"). The original program is a 32-bit Windows PE32
