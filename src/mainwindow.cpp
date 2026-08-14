@@ -31,6 +31,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QEvent>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -39,6 +40,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -51,6 +53,7 @@
 #include <QTableWidget>
 #include <QTextStream>
 #include <QToolButton>
+#include <QTranslator>
 #include <QVBoxLayout>
 #include <QDateTime>
 
@@ -166,6 +169,14 @@ QString findReferenceDir()
         return home.absolutePath();
     return QString();
 }
+
+// Persisted UI language preference ("system" to follow the system locale).
+QString savedLanguage()
+{
+    QSettings settings;
+    return settings.value(QStringLiteral("ui/language"),
+                          QStringLiteral("system")).toString();
+}
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent)
@@ -173,6 +184,9 @@ MainWindow::MainWindow(QWidget *parent)
 {
     setWindowTitle(QStringLiteral("%1 %2").arg(QLatin1String(APP_NAME),
                                                QLatin1String(APP_VERSION)));
+
+    m_translator = new QTranslator(this);
+    applyLanguage(savedLanguage(), false);
 
     const QString referenceDir = findReferenceDir();
     if (!referenceDir.isEmpty())
@@ -216,12 +230,11 @@ MainWindow::MainWindow(QWidget *parent)
     if (device.detect()) {
         m_deviceConnected = true;
         m_model = device.connectedModel();
-    } else if (!qEnvironmentVariableIsSet("OPENXGPRO_SCREENSHOT")) {
-        m_model = ProgrammerDialog::getModel(m_model, this);
     }
     settings.setValue(QStringLiteral("programmer/model"),
                       Programmer::modelName(m_model));
     refreshDeviceStatus();
+    m_uiBuilt = true;
 }
 
 QWidget *MainWindow::buildDeviceGroup()
@@ -233,6 +246,7 @@ QWidget *MainWindow::buildDeviceGroup()
 
     auto *findChipButton = new QPushButton(tr("Find &Select Chip..."), box);
     connect(findChipButton, &QPushButton::clicked, this, &MainWindow::showChipDialog);
+    m_findChipButton = findChipButton;
 
     m_chipCombo = new QComboBox(box);
     m_chipCombo->setEditable(true);
@@ -242,11 +256,13 @@ QWidget *MainWindow::buildDeviceGroup()
             &MainWindow::onChipComboEdited);
 
     auto *interfaceLabel = new QLabel(tr("Interface:"), box);
+    m_interfaceLabel = interfaceLabel;
     m_interfaceCombo = new QComboBox(box);
     m_interfaceCombo->addItem(QStringLiteral("40-pin ZIF socket"));
     m_interfaceCombo->addItem(QStringLiteral("ICSP serial"));
 
     auto *icspEnable = new QCheckBox(tr("ICSP_VCC Enable"), box);
+    m_icspEnable = icspEnable;
     m_bits8 = new QRadioButton(tr("8 Bits"), box);
     m_bits16 = new QRadioButton(tr("16 Bits"), box);
     m_bits8->setChecked(true);
@@ -260,6 +276,7 @@ QWidget *MainWindow::buildDeviceGroup()
     });
 
     auto *imaxLabel = new QLabel(tr("Vcc current Imax:"), box);
+    m_imaxLabel = imaxLabel;
     m_imaxCombo = new QComboBox(box);
     for (const QString &v : {QStringLiteral("Default"), QStringLiteral("50mA"),
                              QStringLiteral("100mA"), QStringLiteral("150mA"),
@@ -267,10 +284,13 @@ QWidget *MainWindow::buildDeviceGroup()
         m_imaxCombo->addItem(v);
 
     auto *saveLog = new QCheckBox(tr("Save Log"), box);
+    m_saveLog = saveLog;
     auto *clearLog = new QPushButton(tr("Clear"), box);
+    m_clearLog = clearLog;
     clearLog->setEnabled(false);
 
     auto *upgrade = new QPushButton(tr("Upgrade available"), box);
+    m_upgrade = upgrade;
     upgrade->setVisible(false);
 
     lay->addWidget(findChipButton, 0, 0, 1, 2);
@@ -296,10 +316,13 @@ QWidget *MainWindow::buildChipInfoGroup()
     lay->setVerticalSpacing(4);
 
     auto *typeTitle = new QLabel(tr("Chip type:"), box);
+    m_chipTypeTitle = typeTitle;
     m_chipTypeLabel = new QLabel(tr("unknown"), box);
     auto *sumTitle = new QLabel(tr("Checksum:"), box);
+    m_checksumTitle = sumTitle;
     m_checksumLabel = new QLabel(QStringLiteral(" 0000 0000"), box);
     auto *timeTitle = new QLabel(tr("Time:"), box);
+    m_timeTitle = timeTitle;
     m_timeLabel = new QLabel(QStringLiteral(" 2000-00-00"), box);
 
     lay->addWidget(typeTitle, 0, 0);
@@ -332,6 +355,7 @@ QWidget *MainWindow::buildChipListArea()
             &MainWindow::showDeviceContextMenu);
 
     auto *tabs = new QTabWidget(box);
+    m_tabs = tabs;
     tabs->addTab(m_deviceTable, tr("Device list"));
 
     m_hexView = new HexView(box);
@@ -342,12 +366,16 @@ QWidget *MainWindow::buildChipListArea()
 
     auto *row = new QHBoxLayout;
     auto *pendingFile = new QLabel(tr(" File to write:"), box);
+    m_pendingFileLabel = pendingFile;
     m_pendingEdit = new QLineEdit(box);
     auto *chooseData = new QPushButton(tr("Load file..."), box);
+    m_chooseData = chooseData;
     connect(chooseData, &QPushButton::clicked, this, &MainWindow::loadDataFile);
     auto *saveFile = new QLabel(tr(" Save to file:"), box);
+    m_saveFileLabel = saveFile;
     auto *saveEdit = new QLineEdit(box);
     auto *chooseTarget = new QPushButton(tr("Save file as..."), box);
+    m_chooseTarget = chooseTarget;
     connect(chooseTarget, &QPushButton::clicked, this, &MainWindow::saveDataFile);
     row->addWidget(pendingFile);
     row->addWidget(m_pendingEdit, 1);
@@ -364,6 +392,7 @@ QWidget *MainWindow::buildChipListArea()
 QWidget *MainWindow::buildProgramSettingsGroup()
 {
     auto *box = new QGroupBox(tr("Program settings"), this);
+    m_programSettingsGroup = box;
     auto *lay = new QGridLayout(box);
     lay->setHorizontalSpacing(8);
     lay->setVerticalSpacing(4);
@@ -377,8 +406,11 @@ QWidget *MainWindow::buildProgramSettingsGroup()
     m_skipWriteFF = new QCheckBox(tr("Skip 0xFF writes"), box);
 
     auto *rangeLabel = new QLabel(tr("Range:"), box);
+    m_rangeLabel = rangeLabel;
     auto *partial = new QRadioButton(tr("Partial"), box);
+    m_partial = partial;
     auto *all = new QRadioButton(tr("Full"), box);
+    m_all = all;
     all->setChecked(true);
     auto *fromLabel = new QLabel(QStringLiteral("0x"), box);
     auto *fromEdit = new QLineEdit(QStringLiteral("0"), box);
@@ -386,6 +418,7 @@ QWidget *MainWindow::buildProgramSettingsGroup()
     auto *toEdit = new QLineEdit(QStringLiteral("0"), box);
 
     auto *blockLabel = new QLabel(tr("Block:"), box);
+    m_blockLabel = blockLabel;
     auto *blockSpin = new QSpinBox(box);
     blockSpin->setMaximum(0x7fffffff);
 
@@ -417,9 +450,12 @@ QWidget *MainWindow::buildChipConfigGroup()
     lay->setSpacing(4);
 
     auto *spi = new QGroupBox(tr("SPI EEPROM (25/35/95 series) status bits"), box);
+    m_spiGroup = spi;
     auto *spiLay = new QHBoxLayout(spi);
     auto *readStatus = new QPushButton(tr("Read status"), spi);
+    m_readStatus = readStatus;
     auto *writeStatus = new QPushButton(tr("Write status"), spi);
+    m_writeStatus = writeStatus;
     connect(readStatus, &QPushButton::clicked, this,
             [this] { stubOperation(tr("Read SPI status")); });
     connect(writeStatus, &QPushButton::clicked, this,
@@ -429,14 +465,20 @@ QWidget *MainWindow::buildChipConfigGroup()
     spiLay->addStretch(1);
 
     auto *config = new QGroupBox(tr("Chip configuration"), box);
+    m_configGroup = config;
     auto *confLay = new QGridLayout(config);
     auto *userIdLabel = new QLabel(tr("USERID:"), config);
+    m_userIdLabel = userIdLabel;
     auto *userIdEdit = new QLineEdit(config);
     auto *unprotectBefore = new QCheckBox(tr("Unprotect before programming"), config);
+    m_unprotectBefore = unprotectBefore;
     auto *protectAfter = new QCheckBox(tr("Protect after programming"), config);
+    m_protectAfter = protectAfter;
     auto *unprotect = new QPushButton(tr("Unprotect"), config);
+    m_unprotect = unprotect;
     auto *protectedNotice = new QLabel(tr("Protected mode — some functions are disabled!"),
                                        config);
+    m_protectedNotice = protectedNotice;
     protectedNotice->setEnabled(false);
 
     confLay->addWidget(userIdLabel, 0, 0);
@@ -455,40 +497,56 @@ QWidget *MainWindow::buildChipConfigGroup()
 void MainWindow::buildMenus()
 {
     auto *fileMenu = menuBar()->addMenu(tr("&File"));
+    m_fileMenu = fileMenu;
     auto *openAction = fileMenu->addAction(tr("&Open..."));
+    m_openAction = openAction;
     openAction->setShortcut(QKeySequence::Open);
     auto *saveAction = fileMenu->addAction(tr("&Save to file"));
+    m_saveAction = saveAction;
     saveAction->setShortcut(QKeySequence::Save);
     connect(openAction, &QAction::triggered, this, &MainWindow::loadDataFile);
     connect(saveAction, &QAction::triggered, this, &MainWindow::saveDataFile);
     fileMenu->addSeparator();
     auto *clearBufferAction = fileMenu->addAction(tr("Clear &Current Buffer"));
+    m_clearBufferAction = clearBufferAction;
     connect(clearBufferAction, &QAction::triggered, this,
             [this] { updateBuffer(QByteArray()); });
     auto *clearAllAction = fileMenu->addAction(tr("Clear &All Buffers"));
+    m_clearAllAction = clearAllAction;
     connect(clearAllAction, &QAction::triggered, this,
             [this] { updateBuffer(QByteArray()); });
     fileMenu->addSeparator();
     auto *quitAction = fileMenu->addAction(tr("E&xit"));
+    m_quitAction = quitAction;
     quitAction->setShortcut(QKeySequence::Quit);
     connect(quitAction, &QAction::triggered, this, &MainWindow::close);
 
     auto *chipMenu = menuBar()->addMenu(tr("&Chip Select"));
+    m_chipMenu = chipMenu;
     auto *findChipAction = chipMenu->addAction(tr("Find &Select Chip..."));
+    m_findChipAction = findChipAction;
     connect(findChipAction, &QAction::triggered, this, &MainWindow::showChipDialog);
     chipMenu->addSeparator();
     auto *flashIdentifyAction = chipMenu->addAction(tr("25 Flash Identify"));
+    m_flashIdentifyAction = flashIdentifyAction;
     connect(flashIdentifyAction, &QAction::triggered, this,
             [this] { performOperation(OpType::FlashIdentify); });
 
     auto *opMenu = menuBar()->addMenu(tr("&Operations"));
+    m_opMenu = opMenu;
     auto *readAction = opMenu->addAction(tr("&Read chip"));
+    m_readAction = readAction;
     auto *idAction = opMenu->addAction(tr("Chip &ID"));
+    m_idAction = idAction;
     auto *verifyAction = opMenu->addAction(tr("&Verify"));
+    m_verifyAction = verifyAction;
     opMenu->addSeparator();
     auto *programAction = opMenu->addAction(tr("&Program"));
+    m_programAction = programAction;
     auto *eraseAction = opMenu->addAction(tr("&Erase"));
+    m_eraseAction = eraseAction;
     auto *blankAction = opMenu->addAction(tr("&Blank check"));
+    m_blankAction = blankAction;
     connect(readAction, &QAction::triggered, this, [this] { performOperation(OpType::Read); });
     connect(idAction, &QAction::triggered, this, [this] { performOperation(OpType::ChipId); });
     connect(verifyAction, &QAction::triggered, this, [this] { performOperation(OpType::Verify); });
@@ -497,27 +555,34 @@ void MainWindow::buildMenus()
     connect(blankAction, &QAction::triggered, this, [this] { performOperation(OpType::BlankCheck); });
 
     auto *toolsMenu = menuBar()->addMenu(tr("System &Tools"));
+    m_toolsMenu = toolsMenu;
     auto *selectProgAction = toolsMenu->addAction(tr("Select &Programmer..."));
+    m_selectProgAction = selectProgAction;
     selectProgAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+P")));
     connect(selectProgAction, &QAction::triggered, this,
             &MainWindow::selectProgrammer);
     toolsMenu->addSeparator();
     auto *calculatorAction = toolsMenu->addAction(tr("&Calculator"));
+    m_calculatorAction = calculatorAction;
     connect(calculatorAction, &QAction::triggered, this,
             [this] { stubOperation(tr("Calculator")); });
     toolsMenu->addSeparator();
     auto *selftestAction = toolsMenu->addAction(tr("Programmer &Self-Test"));
+    m_selftestAction = selftestAction;
     connect(selftestAction, &QAction::triggered, this,
             [this] { stubOperation(tr("Self-test")); });
     toolsMenu->addSeparator();
     auto *firmwareAction = toolsMenu->addAction(tr("&Firmware Flash Update"));
+    m_firmwareAction = firmwareAction;
     connect(firmwareAction, &QAction::triggered, this,
             [this] { stubOperation(tr("Firmware update")); });
     auto *adapterAction = toolsMenu->addAction(tr("&Adapter Test"));
+    m_adapterAction = adapterAction;
     connect(adapterAction, &QAction::triggered, this,
             [this] { stubOperation(tr("Adapter test")); });
 
     auto *themeMenu = menuBar()->addMenu(tr("&Theme"));
+    m_themeMenu = themeMenu;
     m_themeGroup = new QActionGroup(this);
     m_themeGroup->setExclusive(true);
     auto addThemeAction = [this, themeMenu](Theme::Mode mode, const QString &text) {
@@ -528,8 +593,11 @@ void MainWindow::buildMenus()
         return action;
     };
     auto *systemAction = addThemeAction(Theme::Mode::System, tr("Follow &system"));
+    m_themeSystemAction = systemAction;
     auto *lightAction = addThemeAction(Theme::Mode::Light, tr("&Light"));
+    m_themeLightAction = lightAction;
     auto *darkAction = addThemeAction(Theme::Mode::Dark, tr("&Dark"));
+    m_themeDarkAction = darkAction;
     Q_UNUSED(lightAction);
     Q_UNUSED(darkAction);
     systemAction->setChecked(true);
@@ -538,12 +606,46 @@ void MainWindow::buildMenus()
     });
 
     auto *helpMenu = menuBar()->addMenu(tr("&Help"));
+    m_helpMenu = helpMenu;
     auto *aboutAction = helpMenu->addAction(tr("&About"));
+    m_aboutAction = aboutAction;
     connect(aboutAction, &QAction::triggered, this, &MainWindow::showAbout);
     helpMenu->addSeparator();
     auto *upgradeAction = helpMenu->addAction(tr("&Online Upgrade"));
+    m_upgradeAction = upgradeAction;
     connect(upgradeAction, &QAction::triggered, this,
             [this] { stubOperation(tr("Online upgrade")); });
+
+    auto *languageMenu = menuBar()->addMenu(tr("&Language"));
+    m_languageMenu = languageMenu;
+    m_languageGroup = new QActionGroup(this);
+    m_languageGroup->setExclusive(true);
+    const auto addLanguage = [this, languageMenu](const QString &code, const QString &label) {
+        auto *action = languageMenu->addAction(label);
+        action->setCheckable(true);
+        action->setData(code);
+        m_languageGroup->addAction(action);
+        connect(action, &QAction::triggered, this,
+                [this, code] { applyLanguage(code, true); });
+        return action;
+    };
+    auto *languageSystemAction = addLanguage(QStringLiteral("system"), tr("&System language"));
+    m_languageSystemAction = languageSystemAction;
+    addLanguage(QStringLiteral("en"), QStringLiteral("English"));
+    addLanguage(QStringLiteral("pl"), QStringLiteral("Polski"));
+    addLanguage(QStringLiteral("ru"), QStringLiteral("Русский"));
+    addLanguage(QStringLiteral("cs"), QStringLiteral("Česky"));
+    addLanguage(QStringLiteral("es"), QStringLiteral("Español"));
+    addLanguage(QStringLiteral("de"), QStringLiteral("Deutsch"));
+    addLanguage(QStringLiteral("pt_BR"), QStringLiteral("Português (Brasil)"));
+    addLanguage(QStringLiteral("fr"), QStringLiteral("Français"));
+    addLanguage(QStringLiteral("hu"), QStringLiteral("Magyar"));
+    addLanguage(QStringLiteral("it"), QStringLiteral("Italiano"));
+    addLanguage(QStringLiteral("tr"), QStringLiteral("Türkçe"));
+
+    const QString current = savedLanguage();
+    for (auto *action : m_languageGroup->actions())
+        action->setChecked(action->data().toString() == current);
 }
 
 void MainWindow::showChipDialog()
@@ -895,4 +997,137 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     saveSettings();
     QMainWindow::closeEvent(event);
+}
+
+void MainWindow::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::LanguageChange && m_uiBuilt)
+        retranslateUi();
+    QMainWindow::changeEvent(event);
+}
+
+void MainWindow::applyLanguage(const QString &code, bool persist)
+{
+    QApplication::removeTranslator(m_translator);
+
+    QString loc = code;
+    if (loc == QStringLiteral("system"))
+        loc = QLocale::system().name();
+    if (!loc.isEmpty() && loc != QLatin1String("en")) {
+        // Try the full locale (e.g. "pt_BR") first, then the bare language
+        // code (e.g. "pt").
+        const QStringList candidates = {loc, loc.section(QLatin1Char('_'), 0, 0)};
+        for (const QString &c : candidates) {
+            if (m_translator->load(
+                    QStringLiteral(":/i18n/OpenXgpro_%1.qm").arg(c))) {
+                QApplication::installTranslator(m_translator);
+                break;
+            }
+        }
+    }
+
+    if (persist) {
+        QSettings settings;
+        settings.setValue(QStringLiteral("ui/language"), code);
+    }
+    if (m_languageGroup) {
+        for (auto *action : m_languageGroup->actions())
+            action->setChecked(action->data().toString() == code);
+    }
+}
+
+void MainWindow::retranslateUi()
+{
+    m_findChipButton->setText(tr("Find &Select Chip..."));
+    m_interfaceLabel->setText(tr("Interface:"));
+    m_icspEnable->setText(tr("ICSP_VCC Enable"));
+    m_bits8->setText(tr("8 Bits"));
+    m_bits16->setText(tr("16 Bits"));
+    m_imaxLabel->setText(tr("Vcc current Imax:"));
+    m_saveLog->setText(tr("Save Log"));
+    m_clearLog->setText(tr("Clear"));
+    m_upgrade->setText(tr("Upgrade available"));
+
+    m_chipTypeTitle->setText(tr("Chip type:"));
+    m_checksumTitle->setText(tr("Checksum:"));
+    m_timeTitle->setText(tr("Time:"));
+
+    m_deviceTable->setHorizontalHeaderLabels(
+        {tr("Type"), tr("Device"), tr("Algorithm")});
+    m_tabs->setTabText(0, tr("Device list"));
+    m_tabs->setTabText(1, tr("Buffer"));
+    m_pendingFileLabel->setText(tr(" File to write:"));
+    m_chooseData->setText(tr("Load file..."));
+    m_saveFileLabel->setText(tr(" Save to file:"));
+    m_chooseTarget->setText(tr("Save file as..."));
+
+    m_programSettingsGroup->setTitle(tr("Program settings"));
+    m_pinDetect->setText(tr("Pin Detect"));
+    m_checkId->setText(tr("Check ID"));
+    m_eraseFirst->setText(tr("Erase before programming"));
+    m_verifyAfter->setText(tr("Verify after programming"));
+    m_eraseOtp->setText(tr("Erase OTP"));
+    m_blankCheck->setText(tr("Blank check before programming"));
+    m_skipWriteFF->setText(tr("Skip 0xFF writes"));
+    m_rangeLabel->setText(tr("Range:"));
+    m_partial->setText(tr("Partial"));
+    m_all->setText(tr("Full"));
+    m_blockLabel->setText(tr("Block:"));
+
+    m_spiGroup->setTitle(tr("SPI EEPROM (25/35/95 series) status bits"));
+    m_readStatus->setText(tr("Read status"));
+    m_writeStatus->setText(tr("Write status"));
+    m_configGroup->setTitle(tr("Chip configuration"));
+    m_userIdLabel->setText(tr("USERID:"));
+    m_unprotectBefore->setText(tr("Unprotect before programming"));
+    m_protectAfter->setText(tr("Protect after programming"));
+    m_unprotect->setText(tr("Unprotect"));
+    m_protectedNotice->setText(
+        tr("Protected mode — some functions are disabled!"));
+
+    m_fileMenu->setTitle(tr("&File"));
+    m_openAction->setText(tr("&Open..."));
+    m_saveAction->setText(tr("&Save to file"));
+    m_clearBufferAction->setText(tr("Clear &Current Buffer"));
+    m_clearAllAction->setText(tr("Clear &All Buffers"));
+    m_quitAction->setText(tr("E&xit"));
+
+    m_chipMenu->setTitle(tr("&Chip Select"));
+    m_findChipAction->setText(tr("Find &Select Chip..."));
+    m_flashIdentifyAction->setText(tr("25 Flash Identify"));
+
+    m_opMenu->setTitle(tr("&Operations"));
+    m_readAction->setText(tr("&Read chip"));
+    m_idAction->setText(tr("Chip &ID"));
+    m_verifyAction->setText(tr("&Verify"));
+    m_programAction->setText(tr("&Program"));
+    m_eraseAction->setText(tr("&Erase"));
+    m_blankAction->setText(tr("&Blank check"));
+
+    m_toolsMenu->setTitle(tr("System &Tools"));
+    m_selectProgAction->setText(tr("Select &Programmer..."));
+    m_calculatorAction->setText(tr("&Calculator"));
+    m_selftestAction->setText(tr("Programmer &Self-Test"));
+    m_firmwareAction->setText(tr("&Firmware Flash Update"));
+    m_adapterAction->setText(tr("&Adapter Test"));
+
+    m_themeMenu->setTitle(tr("&Theme"));
+    m_themeSystemAction->setText(tr("Follow &system"));
+    m_themeLightAction->setText(tr("&Light"));
+    m_themeDarkAction->setText(tr("&Dark"));
+
+    m_helpMenu->setTitle(tr("&Help"));
+    m_aboutAction->setText(tr("&About"));
+    m_upgradeAction->setText(tr("&Online Upgrade"));
+
+    m_languageMenu->setTitle(tr("&Language"));
+    m_languageSystemAction->setText(tr("&System language"));
+
+    setWindowTitle(m_currentChip.isEmpty()
+                       ? QStringLiteral("%1 %2").arg(QLatin1String(APP_NAME),
+                                                     QLatin1String(APP_VERSION))
+                       : QStringLiteral("%1 %2 — %3").arg(QLatin1String(APP_NAME),
+                                                          QLatin1String(APP_VERSION),
+                                                          m_currentChip));
+    refreshDeviceStatus();
 }

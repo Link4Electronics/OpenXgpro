@@ -13,7 +13,7 @@ set(CMAKE_AUTOUIC ON)
 set(APP_NAME "OpenXgpro")
 set(APP_VERSION "${PROJECT_VERSION}")
 
-find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets LinguistTools)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
@@ -57,6 +57,24 @@ set_target_properties(OpenXgpro PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE
 )
+
+# Translations (Qt Linguist). The committed .ts files are compiled to .qm at
+# build time (lrelease) and embedded into the executable as resources under
+# ":/i18n". Run the "OpenXgpro_lupdate" target to refresh the .ts files after
+# adding or changing tr() strings.
+set(TS_FILES
+    translations/OpenXgpro_pl.ts
+    translations/OpenXgpro_ru.ts
+    translations/OpenXgpro_cs.ts
+    translations/OpenXgpro_es.ts
+    translations/OpenXgpro_de.ts
+    translations/OpenXgpro_pt_BR.ts
+    translations/OpenXgpro_fr.ts
+    translations/OpenXgpro_hu.ts
+    translations/OpenXgpro_it.ts
+    translations/OpenXgpro_tr.ts
+)
+qt_add_translations(OpenXgpro SOURCE_TARGETS OpenXgpro TS_FILES ${TS_FILES})
 
 # Offscreen smoke test for the buffer hex view (QPA offscreen, exit code only).
 qt_add_executable(hexview-smoke
