@@ -3,7 +3,7 @@
 
 The reference Xgpro distribution ships one .alg per chip family. Each file is a
 8051/8052 firmware image that the programmer's MCU executes to talk to the
-chip. See docs/reverse-engineering/04-algorithm-format.md for the container
+chip. See docs/04-algorithm-format.md for the container
 layout.
 
 Usage:
@@ -25,7 +25,7 @@ import struct
 import sys
 
 # --------------------------------------------------------------------------
-# Container layout (see docs/reverse-engineering/04-algorithm-format.md)
+# Container layout (see docs/04-algorithm-format.md)
 # --------------------------------------------------------------------------
 NAME_OFFSET = 0x00
 NAME_BYTES = 16
